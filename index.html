@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!--PAGE-START-->
+<title>Cámara de Tutankamón</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="css/styles.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<!--HEAD-END-->
+</head>
+<body>
+<!--BODY-START-->
+<div id="app">
+  <canvas id="view" aria-label="Escena 3D de la cámara funeraria"></canvas>
+  <div id="labels" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-kicker">KV62 · Valle de los Reyes</span>
+      <h1 class="brand-title">Cámara de Tutankamón</h1>
+    </div>
+    <nav class="modes" role="tablist" aria-label="Modo">
+      <button class="mode" role="tab" id="mode-discovery" data-mode="discovery" aria-selected="true">Descubrimiento</button>
+      <button class="mode" role="tab" id="mode-free" data-mode="free" aria-selected="false">Exploración libre</button>
+      <button class="mode" role="tab" id="mode-gallery" data-mode="gallery" aria-selected="false">Galería</button>
+    </nav>
+  </header>
+
+  <div class="tools" id="tomb-tools">
+    <button class="tool" id="btn-overview" aria-pressed="false" title="Ver todas las capas en su sitio, semitransparentes">Vista general</button>
+    <button class="tool" id="btn-explode" aria-pressed="false" title="Separar las estructuras para verlas una a una">Capas separadas</button>
+    <button class="tool" id="btn-reset" title="Cerrar todo y volver a la vista inicial">Restablecer</button>
+  </div>
+  <div class="tools" id="gallery-tools" hidden>
+    <button class="tool" id="btn-autorotate" aria-pressed="true">Giro automático</button>
+    <button class="tool" id="btn-gallery-info">Ficha</button>
+    <button class="tool" id="btn-gallery-reset">Restablecer vista</button>
+  </div>
+
+  <aside class="layers" id="layers" aria-label="Capas funerarias">
+    <p class="layers-head">Capas <span id="layers-count" class="mono"></span></p>
+    <ol id="layer-list"></ol>
+    <p class="layers-note" id="layers-note"></p>
+  </aside>
+
+  <section class="guide" id="guide" aria-live="polite">
+    <div class="guide-meta">
+      <span class="eyebrow" id="guide-step"></span>
+      <span class="progress" id="guide-progress" aria-hidden="true"></span>
+    </div>
+    <h2 class="guide-title" id="guide-title"></h2>
+    <p class="guide-text" id="guide-text"></p>
+    <div class="guide-actions">
+      <button class="btn ghost" id="btn-prev">‹ Cerrar anterior</button>
+      <button class="btn" id="btn-info">Ficha</button>
+      <button class="btn primary" id="btn-next">Abrir ›</button>
+    </div>
+  </section>
+
+  <section class="gallery-bar" id="gallery-bar" hidden aria-label="Objetos de la galería">
+    <div class="chips" id="gallery-chips" role="listbox"></div>
+  </section>
+
+  <aside class="panel" id="panel" hidden aria-label="Ficha del objeto">
+    <button class="panel-close" id="panel-close" aria-label="Cerrar ficha">×</button>
+    <div class="panel-body" id="panel-body"></div>
+  </aside>
+
+  <p class="hint" id="hint">Arrastra para girar · rueda o pellizco para acercar · toca una pieza para ver su ficha</p>
+  <p class="disclaimer">Modelos esquemáticos con proporciones aproximadas, no réplicas. Máscara 3D: Roberto Domínguez, CC BY 4.0.</p>
+
+  <div class="loading" id="loading"><span>Preparando la cámara…</span></div>
+  <div class="error" id="error" hidden></div>
+</div>
+<script type="module" src="js/main.js"></script>
+<!--BODY-END-->
+</body>
+</html>
