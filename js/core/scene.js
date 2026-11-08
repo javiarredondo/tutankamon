@@ -4,9 +4,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
-import { assetURL } from './assets.js';
+import { assetURL, trackAsset } from './assets.js';
 import { floorTexture } from './materials.js';
-import { tween, Ease } from './tween.js';
+import { tween, cancelChannel, Ease } from './tween.js';
 
 const BG = 0x0e0b08;
 
@@ -34,7 +34,7 @@ let hdrPromise = null;
 function environment(renderer, scene) {
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  if (!hdrPromise) hdrPromise = assetURL(HDRI_URL).then((u) => new EXRLoader().loadAsync(u));
+  if (!hdrPromise) hdrPromise = trackAsset('hdri', assetURL(HDRI_URL).then((u) => new EXRLoader().loadAsync(u)));
   hdrPromise.then((tex) => {
     tex.mapping = THREE.EquirectangularReflectionMapping;
     const old = scene.environment;
@@ -127,7 +127,9 @@ export function createLabelRenderer(el) {
 
 /**
  * Mueve la cámara para encuadrar una esfera, manteniendo una dirección de vista dada.
- * Devuelve una Promise que se resuelve al terminar la transición.
+ * Devuelve una Promise que se resuelve al terminar la transición (`true`) o cuando otra
+ * la sustituye o el visitante toma el control de la cámara (`false`, ver `stopFlight`).
+ * Cada cámara tiene un único canal de vuelo: un vuelo nuevo reemplaza al que estuviera en curso.
  */
 export function flyTo(camera, controls, center, radius, dir, duration = 1.4) {
   const fov = THREE.MathUtils.degToRad(camera.fov);
@@ -139,7 +141,7 @@ export function flyTo(camera, controls, center, radius, dir, duration = 1.4) {
   const fromT = controls.target.clone();
   controls.minDistance = Math.max(0.05, radius * 0.25);
   controls.maxDistance = Math.max(dist * 3, 8);
-  if (duration <= 0) { camera.position.copy(toPos); controls.target.copy(center); controls.update(); return Promise.resolve(); }
+  if (duration <= 0) { stopFlight(camera); camera.position.copy(toPos); controls.target.copy(center); controls.update(); return Promise.resolve(true); }
   // trayectoria en arco: la dirección de vista gira (slerp) alrededor del objetivo y la
   // distancia se abomba un poco a mitad de camino, en lugar de atravesar las piezas en línea recta
   const offFrom = fromPos.clone().sub(fromT), offTo = toPos.clone().sub(center);
@@ -151,7 +153,7 @@ export function flyTo(camera, controls, center, radius, dir, duration = 1.4) {
   const bulge = Math.min(0.35, 0.12 * angle + (0.25 * travel) / Math.max(r0, r1, 1e-3));
   const qi = new THREE.Quaternion(), tgt = new THREE.Vector3(), dirK = new THREE.Vector3();
   return tween({
-    duration, ease: Ease.inOut,
+    duration, ease: Ease.inOut, channel: camera,
     onUpdate: (k) => {
       tgt.lerpVectors(fromT, center, k);
       qi.identity().slerp(q, k);
@@ -162,3 +164,6 @@ export function flyTo(camera, controls, center, radius, dir, duration = 1.4) {
     },
   });
 }
+
+/** Detiene el vuelo de cámara en curso (p. ej. cuando el visitante empieza a arrastrar). */
+export function stopFlight(camera) { return cancelChannel(camera); }

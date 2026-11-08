@@ -8,16 +8,24 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const KEY = 'tut-calidad';
 
+/**
+ * Los dos niveles de calidad. Los valores van en español porque son los que se guardan
+ * en localStorage y los que acepta la URL (`?calidad=alta|normal`): no cambiarlos.
+ */
+export const QUALITY = Object.freeze({ HIGH: 'alta', NORMAL: 'normal' });
+const isQuality = (v) => v === QUALITY.HIGH || v === QUALITY.NORMAL;
+
+/** Prioridad: `?lite` → `?calidad=` → lo último elegido (localStorage) → según el equipo. */
 export function defaultQuality() {
   const qs = new URLSearchParams(location.search);
-  if (qs.has('lite')) return 'normal';
-  if (qs.get('calidad') === 'alta' || qs.get('calidad') === 'normal') return qs.get('calidad');
+  if (qs.has('lite')) return QUALITY.NORMAL;
+  if (isQuality(qs.get('calidad'))) return qs.get('calidad');
   try {
     const v = localStorage.getItem(KEY);
-    if (v === 'alta' || v === 'normal') return v;
+    if (isQuality(v)) return v;
   } catch (e) { /* almacenamiento no disponible */ }
   const desktop = window.matchMedia('(pointer: fine)').matches && Math.min(window.innerWidth, window.innerHeight) >= 700;
-  return desktop ? 'alta' : 'normal';
+  return desktop ? QUALITY.HIGH : QUALITY.NORMAL;
 }
 
 export function saveQuality(q) {

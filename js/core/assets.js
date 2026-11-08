@@ -15,3 +15,23 @@ export async function assetURL(path) {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return URL.createObjectURL(new Blob([bytes]));
 }
+
+/**
+ * Estado de las descargas en segundo plano. Cada recurso pasa por
+ *   loading ──► ready      (se sustituye la versión provisional)
+ *          └──► failed     (se queda la provisional: entorno neutro o máscara procedural)
+ * Ninguno bloquea la escena. Cada cambio emite el evento `tut:asset` en window.
+ */
+export const ASSET = Object.freeze({ LOADING: 'loading', READY: 'ready', FAILED: 'failed' });
+export const assetStatus = {};
+
+/** Registra `promise` como la carga del recurso `name` y devuelve la misma Promise. */
+export function trackAsset(name, promise) {
+  const set = (state) => {
+    assetStatus[name] = state;
+    window.dispatchEvent(new CustomEvent('tut:asset', { detail: { name, state } }));
+  };
+  set(ASSET.LOADING);
+  promise.then(() => set(ASSET.READY), () => set(ASSET.FAILED));
+  return promise;
+}
