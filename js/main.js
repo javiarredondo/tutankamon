@@ -9,6 +9,7 @@ import { Gallery } from './gallery/gallery.js';
 import { InfoPanel } from './ui/infoPanel.js';
 import { STRUCTURES, EXTRA_INFO } from './data/structures.js';
 import { GALLERY } from './data/gallery.js';
+import { createComposer, defaultQuality, saveQuality } from './core/postfx.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -246,11 +247,39 @@ function init() {
   galControls.addEventListener('change', () => { dirty = true; });
   window.addEventListener('tut:redraw', () => { dirty = true; });
 
+  // calidad: «alta» añade oclusión ambiental (posprocesado); se crea solo al usarse
+  let quality = defaultQuality();
+  const fx = { tomb: null, gal: null };
+  function composerFor(which) {
+    if (!fx[which]) {
+      fx[which] = which === 'tomb'
+        ? createComposer(renderer, tomb.scene, tomb.camera, { radius: 0.4 })
+        : createComposer(renderer, gal.scene, gal.camera, { radius: 0.08 });
+      fx[which].setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight);
+    }
+    return fx[which];
+  }
+  function refreshQuality() {
+    for (const b of document.querySelectorAll('.btn-quality')) {
+      b.textContent = quality === 'alta' ? 'Calidad: alta' : 'Calidad: normal';
+      b.setAttribute('aria-pressed', String(quality === 'alta'));
+      b.title = quality === 'alta' ? 'Sombreado de relieves activado (más exigente)' : 'Modo ligero para tabletas y equipos modestos';
+    }
+  }
+  for (const b of document.querySelectorAll('.btn-quality')) b.addEventListener('click', () => {
+    quality = quality === 'alta' ? 'normal' : 'alta';
+    saveQuality(quality);
+    refreshQuality();
+    dirty = true;
+  });
+  refreshQuality();
+
   function resize() {
     const w = canvas.clientWidth || window.innerWidth, h = canvas.clientHeight || window.innerHeight;
     renderer.setSize(w, h, false);
     for (const cam of [tomb.camera, gal.camera]) { cam.aspect = w / h; cam.updateProjectionMatrix(); }
     labelRenderer.setSize(w, h);
+    for (const k of ['tomb', 'gal']) fx[k] && fx[k].setSize(w, h);
     dirty = true;
   }
   window.addEventListener('resize', resize);
@@ -272,8 +301,13 @@ function init() {
     const moved = ctl.update(dt);
     if (!(dirty || animating || moved || (isGallery && galControls.autoRotate))) return;
     dirty = false;
-    if (isGallery) renderer.render(gal.scene, gal.camera);
-    else { renderer.render(tomb.scene, tomb.camera); labelRenderer.render(tomb.scene, tomb.camera); }
+    const high = quality === 'alta';
+    if (isGallery) {
+      if (high) composerFor('gal').render(); else renderer.render(gal.scene, gal.camera);
+    } else {
+      if (high) composerFor('tomb').render(); else renderer.render(tomb.scene, tomb.camera);
+      labelRenderer.render(tomb.scene, tomb.camera);
+    }
     if (first) { first = false; $('loading').classList.add('done'); }
   }
   frame();

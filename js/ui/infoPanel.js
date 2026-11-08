@@ -57,16 +57,22 @@ export class InfoPanel {
       b.addEventListener('click', a.run);
       act.appendChild(b);
     }
+    clearTimeout(this._t);
+    this.root.classList.remove('closing');
     this.root.hidden = false;
     document.body.classList.add('panel-open');
     this.body.scrollTop = 0;
   }
 
   hide() {
-    if (this.root.hidden) return;
-    this.root.hidden = true;
-    document.body.classList.remove('panel-open');
+    if (this.root.hidden || this.root.classList.contains('closing')) return;
     this.currentId = null;
+    document.body.classList.remove('panel-open');
     this.onClose && this.onClose();
+    // fundido de salida breve (inmediato si se pide reducir el movimiento)
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.root.classList.add('closing');
+    clearTimeout(this._t);
+    this._t = setTimeout(() => { this.root.hidden = true; this.root.classList.remove('closing'); }, reduce ? 0 : 180);
   }
 }

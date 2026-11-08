@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
+import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+import HDRI_HALL from '../assets/hdriHall.js';
 import { floorTexture } from './materials.js';
 import { tween, Ease } from './tween.js';
 
@@ -23,12 +25,23 @@ export function createRenderer(canvas) {
   return renderer;
 }
 
-/** Entorno de reflejos discreto (genera un mapa de entorno sin archivos HDR externos). */
-function environment(renderer) {
+/**
+ * Entorno de reflejos: primero uno neutro generado en código (RoomEnvironment) y, cuando
+ * termina de decodificarse, el HDRI de sala; así la escena se ve desde el primer fotograma.
+ */
+let hdrPromise = null;
+function environment(renderer, scene) {
   const pmrem = new THREE.PMREMGenerator(renderer);
-  const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  pmrem.dispose();
-  return env;
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  if (!hdrPromise) hdrPromise = new EXRLoader().loadAsync(HDRI_HALL);
+  hdrPromise.then((tex) => {
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    const old = scene.environment;
+    scene.environment = pmrem.fromEquirectangular(tex).texture;
+    scene.environmentRotation.y = Math.PI * 0.35;
+    old && old.dispose();
+    window.dispatchEvent(new Event('tut:redraw'));
+  }).catch((e) => console.warn('HDRI no disponible; se mantiene el entorno neutro.', e));
 }
 
 function museumLights(scene, { shadowSize = 2048, keyPos = [6, 9, 6], target = [0, 0.8, 0], spread = 0.6, power = 1 } = {}) {
@@ -55,8 +68,8 @@ export function createTombStage(renderer) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BG);
   scene.fog = new THREE.Fog(BG, 22, 60);
-  scene.environment = environment(renderer);
-  scene.environmentIntensity = 0.45;
+  environment(renderer, scene);
+  scene.environmentIntensity = 0.5;
   const small = Math.min(window.innerWidth, window.innerHeight) < 700;
   const lights = museumLights(scene, { shadowSize: small ? 1024 : 2048 });
 
@@ -74,8 +87,8 @@ export function createTombStage(renderer) {
 export function createGalleryStage(renderer) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BG);
-  scene.environment = environment(renderer);
-  scene.environmentIntensity = 0.55;
+  environment(renderer, scene);
+  scene.environmentIntensity = 0.6;
   const lights = museumLights(scene, { shadowSize: 1024, keyPos: [1.4, 3.2, 2.2], target: [0, 0.9, 0], spread: 0.45, power: 0.16 });
   lights.key.shadow.camera.near = 0.5; lights.key.shadow.camera.far = 8;
   const floor = new THREE.Mesh(new THREE.CircleGeometry(12, 48), new THREE.MeshStandardMaterial({ color: 0x120e0b, roughness: 0.95 }));
@@ -126,11 +139,25 @@ export function flyTo(camera, controls, center, radius, dir, duration = 1.4) {
   controls.minDistance = Math.max(0.05, radius * 0.25);
   controls.maxDistance = Math.max(dist * 3, 8);
   if (duration <= 0) { camera.position.copy(toPos); controls.target.copy(center); controls.update(); return Promise.resolve(); }
+  // trayectoria en arco: la dirección de vista gira (slerp) alrededor del objetivo y la
+  // distancia se abomba un poco a mitad de camino, en lugar de atravesar las piezas en línea recta
+  const offFrom = fromPos.clone().sub(fromT), offTo = toPos.clone().sub(center);
+  if (offFrom.lengthSq() < 1e-8) offFrom.copy(offTo);
+  const r0 = offFrom.length(), r1 = offTo.length();
+  const q = new THREE.Quaternion().setFromUnitVectors(offFrom.clone().normalize(), offTo.clone().normalize());
+  const angle = 2 * Math.acos(THREE.MathUtils.clamp(q.w, -1, 1));
+  const travel = fromT.distanceTo(center);
+  const bulge = Math.min(0.35, 0.12 * angle + (0.25 * travel) / Math.max(r0, r1, 1e-3));
+  const qi = new THREE.Quaternion(), tgt = new THREE.Vector3(), dirK = new THREE.Vector3();
   return tween({
     duration, ease: Ease.inOut,
     onUpdate: (k) => {
-      camera.position.lerpVectors(fromPos, toPos, k);
-      controls.target.lerpVectors(fromT, center, k);
+      tgt.lerpVectors(fromT, center, k);
+      qi.identity().slerp(q, k);
+      dirK.copy(offFrom).normalize().applyQuaternion(qi);
+      const r = (r0 + (r1 - r0) * k) * (1 + bulge * Math.sin(Math.PI * k));
+      camera.position.copy(tgt).addScaledVector(dirK, r);
+      controls.target.copy(tgt);
     },
   });
 }

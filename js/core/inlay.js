@@ -32,6 +32,40 @@ const ORM = {
   faience: 'rgb(0,95,0)', resin: 'rgb(0,120,0)',
 };
 
+/**
+ * Desgaste sobre un mapa ORM: manchas y motas que suben la rugosidad (canal G)
+ * y arañazos finos que la bajan, para que el oro no parezca un espejo uniforme.
+ */
+export function addWear(g, W, H, seed = 1) {
+  const r = rng(seed * 31 + 7);
+  const k = (W * H) / (512 * 512);
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 70 * k; i++) {
+    const x = r() * W, y = r() * H, rad = (20 + r() * 70) * Math.sqrt(k);
+    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+    grd.addColorStop(0, `rgba(0,${Math.round(6 + r() * 12)},0,1)`);
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  for (let i = 0; i < 5000 * k; i++) {
+    g.fillStyle = `rgba(0,${Math.round(r() * 30)},0,1)`;
+    g.fillRect(r() * W, r() * H, 1, 1);
+  }
+  g.globalCompositeOperation = 'darken';
+  g.strokeStyle = 'rgba(255,40,255,0.6)';
+  g.lineWidth = 1;
+  for (let i = 0; i < 160 * k; i++) {
+    const x = r() * W, y = r() * H, a = r() * Math.PI, l = 6 + r() * 30;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+    g.stroke();
+  }
+  g.restore();
+}
+
 /** Normal map a partir de la luminancia de un canvas (alto = claro). */
 export function normalFromCanvas(src, strength = 2.5) {
   const w = src.width, h = src.height;
@@ -84,6 +118,7 @@ export function inlayMaps(key, W, H, draw, { repeat = [1, 1], normal = 2.5, seed
   };
   const color = mk(COLOR);
   const orm = mk(ORM);
+  addWear(orm.getContext('2d'), W, H, seed);
   const res = {
     map: toTex(color, true, repeat),
     ormMap: toTex(orm, false, repeat),

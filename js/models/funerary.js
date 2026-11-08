@@ -7,6 +7,7 @@ import { M, worldUV, faienceMaps, incisedMaps, maskCollarMaps, braidMaps } from 
 import { coffinMaps } from '../core/coffinTextures.js';
 import { inlaidMaterial, stripeMaps } from '../core/inlay.js';
 import { swapInMaskModel } from './externalMask.js';
+import { coffinScale, coffinShell, footCap, lidTop } from './coffinGeometry.js';
 
 const T = 0.07; // grosor esquemático de los paneles de madera
 
@@ -210,14 +211,6 @@ function sampleProfile(profile, n = 72) {
   const curve = new THREE.SplineCurve(profile.map(([t, r]) => new THREE.Vector2(r, t)));
   return curve.getSpacedPoints(n);
 }
-function radiusAt(pts, t) {
-  for (let i = 1; i < pts.length; i++) if (pts[i].y >= t) {
-    const a = pts[i - 1], b = pts[i]; const k = (t - a.y) / Math.max(1e-6, b.y - a.y);
-    return a.x + (b.x - a.x) * k;
-  }
-  return 0;
-}
-
 /**
  * Geometría de media envolvente antropomorfa. Tras la rotación, la cabeza queda en −X
  * y la mitad «lid» mira hacia +Y.
@@ -241,97 +234,166 @@ class Coffin extends Structure {
   }
 }
 
-/** Ataúd antropomorfo con tapa y caja; `variant`: 'outer' | 'middle' | 'inner'. */
-export function buildCoffinParts(def, register) {
-  const { L, W, H } = def.dims;
-  const R = W / 2, sy = H / W;
-  const variant = def.variant;
-  // decoración pintada en el espacio UV de cada mitad (ver core/coffinTextures.js)
-  const lidMat = inlaidMaterial(coffinMaps(variant, 'lid'), { normalScale: variant === 'outer' ? 0.9 : 0.6 });
-  const baseMat = inlaidMaterial(coffinMaps(variant, 'base'), { normalScale: variant === 'outer' ? 0.9 : 0.6 });
-  const pts = sampleProfile(COFFIN_PROFILE);
-  const lid = new THREE.Group();
-  const base = new THREE.Group();
-
-  const lidMesh = mesh(coffinHalf(L, R, 'lid', COFFIN_PROFILE, 64), lidMat); lidMesh.scale.y = sy;
-  const baseMesh = mesh(coffinHalf(L, R, 'base', COFFIN_PROFILE, 64), baseMat); baseMesh.scale.y = sy;
-  register(baseMesh, base);
-  register(lidMesh, lid);
-
-  // posición a lo largo del eje: t (0 pies → 1 cabeza) ⇒ x = L/2 − tL
-  const xAt = (t) => L / 2 - t * L;
-  const topAt = (t) => radiusAt(pts, t) * R * sy;
-  const gold = M.solidGold(variant === 'inner' ? 0.22 : 0.3);
-  // rostro (hacia +Y); el tocado, las lengüetas y el collar están pintados en la textura
-  const face = mesh(new THREE.SphereGeometry(R * 0.3, 32, 20), gold);
-  face.scale.set(1.25, 0.62, 0.95);
-  face.position.set(xAt(0.875), topAt(0.875) * 1.0, 0);
-  register(face, lid);
-  // rasgos del rostro: ojos perfilados, cejas y nariz (muy simplificados)
-  const fx = xAt(0.875), fy = topAt(0.875) + R * 0.3 * 0.62;
-  for (const sd of [-1, 1]) {
-    const eye = mesh(new THREE.SphereGeometry(R * 0.05, 12, 8), M.quartz());
-    eye.scale.set(0.55, 0.35, 1.4); eye.position.set(fx - R * 0.07, fy - R * 0.035, sd * R * 0.11);
-    register(eye, lid);
-    const pupil = mesh(new THREE.SphereGeometry(R * 0.022, 10, 8), M.obsidian());
-    pupil.position.set(fx - R * 0.07, fy - R * 0.02, sd * R * 0.11);
-    register(pupil, lid);
-    const brow = mesh(new THREE.BoxGeometry(R * 0.025, R * 0.02, R * 0.13), M.lapis());
-    brow.position.set(fx - R * 0.14, fy - R * 0.04, sd * R * 0.11);
-    register(brow, lid);
+// Opcional (solo pruebas): si la página define window.__coffinPhoto (una <img>), la tapa del
+// ataúd interior usa esa foto proyectada en lugar de la decoración pintada.
+let photoMat = null;
+function photoMaterial() {
+  if (photoMat) return photoMat;
+  const tex = new THREE.TextureLoader().load(window.__coffinPhoto.src, () => window.dispatchEvent(new Event('tut:redraw')));
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  photoMat = new THREE.MeshStandardMaterial({ map: tex, metalness: 0.8, roughness: 0.42, side: THREE.DoubleSide });
+  return photoMat;
+}
+const PHOTO_T = [[0, 0], [0.668, 0.666], [0.773, 0.766], [0.905, 0.87], [1, 1]];
+function photoT(t) {
+  for (let i = 1; i < PHOTO_T.length; i++) {
+    const [a0, b0] = PHOTO_T[i - 1], [a1, b1] = PHOTO_T[i];
+    if (t <= a1) return b0 + (t - a0) / (a1 - a0) * (b1 - b0);
   }
-  const nose = mesh(new THREE.ConeGeometry(R * 0.035, R * 0.09, 10), gold);
-  nose.position.set(fx + R * 0.02, fy, 0);
-  register(nose, lid);
-  // barba ceremonial bajo el mentón
-  const beard = new THREE.CylinderGeometry(R * 0.06, R * 0.08, L * 0.055, 10);
-  beard.rotateZ(Math.PI / 2);
-  const bm = mesh(beard, inlaidMaterial(stripeMaps('beardC', 'gold', 'lapis', 10, true)));
-  bm.position.set(xAt(0.81), topAt(0.81) + R * 0.04, 0);
-  register(bm, lid);
-  // brazos cruzados sobre el pecho; cada puño sujeta una insignia: cayado (heka) y flagelo (nejaja)
-  const P = (t, zf, lift) => {
-    const rr = Math.max(radiusAt(pts, t) * R, 1e-3), z = zf * R;
-    const ySurf = topAt(t) * Math.sqrt(Math.max(0, 1 - (z / rr) ** 2));
-    return new THREE.Vector3(xAt(t), ySurf + lift * R, z);
-  };
-  const limb = (a, b, r0, r1, mat) => {
-    const dir = new THREE.Vector3().subVectors(b, a);
-    const g = new THREE.CylinderGeometry(r1, r0, dir.length(), 14);
-    const m = mesh(g, mat);
-    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
-    m.position.copy(a).add(b).multiplyScalar(0.5);
-    register(m, lid);
-    return m;
-  };
-  for (const sd of [-1, 1]) {
-    // antebrazo que sale del costado (en relieve) y cruza el pecho hasta el puño contrario
-    const elbow = P(0.585, sd * 0.6, -0.08), fist = P(0.74, -sd * 0.26, 0.12);
-    limb(elbow, fist, R * 0.17, R * 0.14, gold);
-    const f = mesh(new THREE.SphereGeometry(R * 0.18, 18, 14), gold);
-    f.scale.set(1.25, 0.8, 1); f.position.copy(fist);
-    register(f, lid);
-  }
-  const insignia = inlaidMaterial(stripeMaps('insignia', 'gold', 'lapis', 16, false));
-  // cayado: el mango atraviesa el puño derecho y el gancho se curva junto al hombro
-  const crookPath = new THREE.CatmullRomCurve3([
-    P(0.55, 0.38, 0.2), P(0.74, -0.26, 0.2), P(0.82, -0.52, 0.2),
-    P(0.855, -0.62, 0.2), P(0.875, -0.5, 0.2), P(0.862, -0.36, 0.2),
-  ]);
-  register(mesh(new THREE.TubeGeometry(crookPath, 90, R * 0.04, 10), insignia), lid);
-  // flagelo: mango por el puño izquierdo y tres ramales de cuentas que caen sobre el pecho
-  const top = P(0.82, 0.52, 0.24);
-  register(mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([P(0.55, -0.38, 0.2), P(0.74, 0.26, 0.24), top]), 40, R * 0.04, 10), insignia), lid);
-  const beadMats = [gold, M.glassBlue(), M.carnelian()];
-  for (let k = -1; k <= 1; k++) {
-    for (let i = 0; i < 7; i++) {
-      const p = P(0.81 - i * 0.014, 0.56 + i * 0.04 + k * 0.06, 0.16);
-      const bead = mesh(new THREE.SphereGeometry(R * 0.036, 8, 6), beadMats[i % 3]);
-      bead.scale.set(1.3, 1, 1); bead.position.copy(p);
-      register(bead, lid);
+  return 1;
+}
+function shellWrap(geo, uv) {
+  const pos = geo.attributes.position, cols = 57;
+  const rows = pos.count / cols;
+  for (let r = 0; r < rows; r++) {
+    const acc = [0];
+    for (let j = 1; j < cols; j++) {
+      const a = r * cols + j - 1, b = a + 1;
+      acc.push(acc[j - 1] + Math.hypot(pos.getY(b) - pos.getY(a), pos.getZ(b) - pos.getZ(a)));
+    }
+    const total = acc[cols - 1] || 1;
+    for (let j = 0; j < cols; j++) {
+      const k = r * cols + j;
+      const uz = uv[k * 2], ua = acc[j] / total;
+      const d = Math.abs(uz - 0.5) * 2;
+      const w = THREE.MathUtils.smoothstep(d, 0.55, 0.98);
+      uv[k * 2] = uz * (1 - w) + ua * w;
     }
   }
-  return { lid, base, R, sy };
+}
+function projectPhoto(lid, mat, S) {
+  const v = new THREE.Vector3();
+  for (const m of lid.children) {
+    if (!m.isMesh || m.material !== mat) continue;
+    m.updateMatrix();
+    const pos = m.geometry.attributes.position;
+    const uv = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrix);
+      const t = THREE.MathUtils.clamp((S.L / 2 - v.x) / S.L, 0, 1);
+      const hw = Math.max(S.hw(Math.min(t, 0.96)), 0.001);
+      uv[i * 2] = THREE.MathUtils.clamp(0.5 - v.z / (2 * hw), 0.004, 0.996);
+      uv[i * 2 + 1] = photoT(t);
+    }
+    if (m.userData.shell) shellWrap(m.geometry, uv);
+    m.geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  }
+}
+/** Ataúd antropomorfo con tapa y caja; `variant`: 'outer' | 'middle' | 'inner'. */
+export function buildCoffinParts(def, register) {
+  const variant = def.variant;
+  const S = coffinScale(def.dims, variant === 'outer');
+  const { L, W } = S;
+  const photo = variant === 'inner' && typeof window !== 'undefined' && window.__coffinPhoto ? photoMaterial() : null;
+  const lidMat = photo || inlaidMaterial(coffinMaps(variant, 'lid'), { normalScale: variant === 'outer' ? 0.9 : 0.6 });
+  const baseMat = inlaidMaterial(coffinMaps(variant, 'base'), { normalScale: variant === 'outer' ? 0.9 : 0.6 });
+  const gold = M.solidGold(variant === 'inner' ? 0.22 : 0.3);
+  const relief = photo || gold;
+  const lid = new THREE.Group();
+  const base = new THREE.Group();
+  register(mesh(coffinShell(S, 'base'), baseMat), base);
+  register(mesh(footCap(S, 'base'), gold), base);
+  const lidShell = mesh(coffinShell(S, 'lid'), lidMat);
+  lidShell.userData.shell = true;
+  register(lidShell, lid);
+  register(mesh(footCap(S, 'lid'), gold), lid);
+  const add = (geo, mat, parent = lid) => {
+    const m = mesh(geo, mat);
+    register(m, parent);
+    return m;
+  };
+  const P = (t, zf, lift = 0) => new THREE.Vector3(S.x(t), lidTop(S, t, zf * W) + lift * W, zf * W);
+  const ell = (rx, ry, rz, mat, p) => {
+    const m = add(new THREE.SphereGeometry(1, 24, 16), mat);
+    m.scale.set(rx, ry, rz);
+    m.position.copy(p);
+    return m;
+  };
+  const tube = (pts, r, mat, seg = 60) => add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), seg, r, 10), mat);
+  const fT = 0.905, fR = { x: 0.056 * L, y: 0.085 * W, z: 0.165 * W };
+  const fC = new THREE.Vector3(S.x(fT), lidTop(S, fT, 0) - 0.055 * W, 0);
+  ell(fR.x, fR.y, fR.z, relief, fC);
+  const faceY = (t, z) => {
+    const dx = (S.x(t) - fC.x) / fR.x, dz = z / fR.z;
+    return fC.y + fR.y * Math.sqrt(Math.max(0, 1 - dx * dx - dz * dz));
+  };
+  const F = (t, zf, lift = 0) => new THREE.Vector3(S.x(t), faceY(t, zf * W) + lift * W, zf * W);
+  const band = add(new THREE.CylinderGeometry(0.012 * W, 0.012 * W, 0.4 * W, 10), relief);
+  band.rotation.x = Math.PI / 2;
+  band.position.copy(P(0.958, 0, 0));
+  const lapis = M.lapis(), quartz = M.quartz(), obs = M.obsidian();
+  for (const sd of [-1, 1]) {
+    ell(0.022 * L, 0.04 * W, 0.022 * W, relief, P(0.905, sd * 0.19, -0.04));
+    if (photo) continue;
+    ell(0.0058 * L, 0.01 * W, 0.03 * W, quartz, F(0.918, sd * 0.066, -0.004));
+    ell(0.0034 * L, 0.01 * W, 0.009 * W, obs, F(0.918, sd * 0.064, 0.003));
+    const liner = add(new THREE.TorusGeometry(1, 0.12, 6, 28), lapis);
+    liner.rotation.x = Math.PI / 2;
+    liner.scale.set(0.0072 * L, 0.034 * W, 0.04 * W);
+    liner.position.copy(F(0.918, sd * 0.066, 0.002));
+    tube([F(0.917, sd * 0.1, 0), F(0.92, sd * 0.135, -0.01)], 0.006 * W, lapis, 6);
+    tube([F(0.93, sd * 0.03, 0), F(0.935, sd * 0.07, 0.003), F(0.931, sd * 0.115, -0.006)], 0.008 * W, lapis, 12);
+  }
+  ell(0.022 * L, 0.03 * W, 0.028 * W, relief, F(0.893, 0, 0.012));
+  ell(0.004 * L, 0.012 * W, 0.045 * W, relief, F(0.871, 0, 0.004));
+  ell(0.004 * L, 0.012 * W, 0.04 * W, relief, F(0.865, 0, 0));
+  const brow = P(0.968, 0, 0);
+  const cobraMat = inlaidMaterial(stripeMaps('cobra', 'gold', 'lapis', 8, true));
+  tube([brow.clone().add(new THREE.Vector3(0, 0, 0.025 * W)), P(0.975, 0.03, 0.06), P(0.985, 0.035, 0.11)], 0.012 * W, cobraMat, 16);
+  ell(0.008 * L, 0.03 * W, 0.022 * W, cobraMat, P(0.986, 0.035, 0.13));
+  tube([brow.clone().add(new THREE.Vector3(0, 0, -0.025 * W)), P(0.976, -0.03, 0.07), P(0.98, -0.03, 0.11)], 0.012 * W, gold, 16);
+  ell(0.009 * L, 0.024 * W, 0.02 * W, gold, P(0.98, -0.03, 0.12));
+  const beak = add(new THREE.ConeGeometry(0.008 * W, 0.03 * W, 8), obs);
+  beak.rotation.z = Math.PI / 2;
+  beak.position.copy(P(0.971, -0.03, 0.12));
+  const beardMat = photo || inlaidMaterial(braidMaps(), { normalScale: 0.8 });
+  tube([F(0.862, 0, -0.01), P(0.835, 0, 0.07), P(0.8, 0, 0.09), P(0.778, 0, 0.085)], 0.028 * W, beardMat, 30);
+  ell(0.012 * L, 0.036 * W, 0.036 * W, beardMat, P(0.773, 0, 0.085));
+  const fistT = 0.668, fistZ = 0.15;
+  for (const sd of [-1, 1]) {
+    tube([P(0.636, sd * 0.44, -0.02), P(0.65, sd * 0.3, 0.02), P(fistT, sd * fistZ, 0.04)], 0.055 * W, relief, 20);
+    ell(0.024 * L, 0.055 * W, 0.085 * W, relief, P(fistT, sd * fistZ, 0.045));
+  }
+  if (photo) {
+    projectPhoto(lid, photo, S);
+    return { lid, base, S };
+  }
+  const insignia = inlaidMaterial(stripeMaps('insignia', 'gold', 'lapis', 16, false));
+  tube([
+    P(0.645, 0.2, 0.09),
+    P(fistT, fistZ, 0.095),
+    P(0.715, 0, 0.1),
+    P(0.8, -0.2, 0.095),
+    P(0.845, -0.29, 0.09),
+    P(0.872, -0.31, 0.09),
+    P(0.887, -0.255, 0.09),
+    P(0.878, -0.195, 0.09),
+    P(0.864, -0.2, 0.09)
+  ], 0.022 * W, insignia, 120);
+  const flTop = P(0.82, 0.3, 0.075);
+  tube([P(0.645, -0.2, 0.075), P(fistT, -fistZ, 0.08), P(0.715, 0, 0.078), flTop], 0.022 * W, insignia, 60);
+  ell(0.007 * L, 0.03 * W, 0.03 * W, gold, flTop);
+  const strandMat = inlaidMaterial(stripeMaps('flailBeads', 'gold', 'lapis', 18, false), { normalScale: 0.9 });
+  for (let k = 0; k < 3; k++) {
+    const pts = [];
+    for (let i = 0; i <= 8; i++) pts.push(P(0.815 - i * 0.019, 0.33 + k * 0.045 + i * 0.006, 0.03));
+    tube(pts, 0.015 * W, strandMat, 40);
+    const tip = add(new THREE.ConeGeometry(0.022 * W, 0.03 * L, 10), gold);
+    tip.rotation.z = Math.PI / 2;
+    tip.position.copy(P(0.648, 0.33 + k * 0.045 + 0.05, 0.03));
+  }
+  return { lid, base, S };
 }
 
 function buildCoffin(def) {
@@ -452,6 +514,9 @@ function buildMummy(def) {
 /** Construye las nueve estructuras en su posición anidada. */
 export function buildFunerarySet(defs) {
   const list = [];
+  // ataúdes y momia se apoyan uno dentro de otro: cada pieza descansa sobre el fondo de la anterior
+  let floorY = 0.13;
+  const NEST_GAP = { outer: 0.06, middle: 0.045, inner: 0.03 };
   for (const def of defs) {
     let s;
     if (def.kind === 'shrine') s = buildShrine(def);
@@ -460,6 +525,11 @@ export function buildFunerarySet(defs) {
     else s = buildMummy(def);
     if (def.pall) addPall(s, def.pall);
     s.nestedPos.set(0, def.baseY || 0, 0);
+    if (def.kind === 'coffin' || def.kind === 'mummy') {
+      const minY = new THREE.Box3().setFromObject(s.root).min.y;
+      s.nestedPos.y = floorY - minY;
+      floorY = s.nestedPos.y + minY + (def.kind === 'coffin' ? NEST_GAP[def.variant] : 0);
+    }
     s.root.position.copy(s.nestedPos);
     s.applyVisual();
     list.push(s);

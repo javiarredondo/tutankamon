@@ -62,22 +62,27 @@ function paintLid(g, pal, W, H, P) {
   const X = (u) => u * W, Y = (v) => (1 - v) * H;
   goldGrain(g, pal, W, H);
   // plumaje rishi en todo el cuerpo
-  featherField(g, pal, P, 0, Y(0.87), W, Y(0.035), 26 * s, 20 * s, s);
+  featherField(g, pal, P, 0, Y(0.84), W, Y(0.035), 26 * s, 20 * s, s);
   // alas de buitre cruzadas sobre el abdomen (una desde cada costado)
   for (const side of [0, 1]) {
     const m = (u) => (side ? 1 - u : u);
-    const poly = [[X(m(0)), Y(0.6)], [X(m(0.56)), Y(0.49)], [X(m(0.56)), Y(0.43)], [X(m(0)), Y(0.4)]];
-    wing(g, pal, P, poly, 0.38, [X(m(0)), Y(0.6)], W * 0.75, s, side === 1);
+    const poly = [[X(m(0)), Y(0.6)], [X(m(0.56)), Y(0.5)], [X(m(0.56)), Y(0.44)], [X(m(0)), Y(0.41)]];
+    wing(g, pal, P, poly, 0.34, [X(m(0)), Y(0.6)], W * 0.75, s, side === 1);
   }
   // columna central de inscripción (marcas genéricas)
   const cx0 = X(0.455), cw = X(0.09);
-  g.fillStyle = pal.gold; g.fillRect(cx0, Y(0.4), cw, Y(0.045) - Y(0.4));
-  g.strokeStyle = pal.goldDark; g.lineWidth = 2 * s; g.strokeRect(cx0, Y(0.4), cw, Y(0.045) - Y(0.4));
-  pseudoGlyphs(g, pal, cx0, Y(0.4), cw, Y(0.045) - Y(0.4), true, 1.2 * s);
+  g.fillStyle = pal.gold; g.fillRect(cx0, Y(0.6), cw, Y(0.05) - Y(0.6));
+  g.strokeStyle = pal.goldDark; g.lineWidth = 2 * s; g.strokeRect(cx0, Y(0.6), cw, Y(0.05) - Y(0.6));
+  pseudoGlyphs(g, pal, cx0, Y(0.6), cw, Y(0.05) - Y(0.6), true, 1.2 * s);
+  // filete dorado bajo los puños
+  g.fillStyle = pal.goldLight; g.fillRect(0, Y(0.625), W, Y(0.61) - Y(0.625));
+  // tocado nemes (cabeza) y lengüetas que caen sobre el pecho
+  stripesH(g, pal, P, 0, 0, W, Y(0.84), 9);
+  for (const u0 of [0, 0.73]) stripesH(g, pal, P, X(u0), Y(0.84), X(0.27), Y(0.66) - Y(0.84), 11);
   // collar ancho: filas de cuentas en arcos alrededor del cuello
-  const ccx = X(0.5), ccy = Y(0.86);
-  const rows = [['gold', 0.012], [P.wings[0], 0.012], ['gold', 0.005], [P.wings[1], 0.011], ['gold', 0.005], [P.wings[2], 0.012], ['gold', 0.005], [P.wings[0], 0.016]];
-  let r0 = 0.035 * H;
+  const ccx = X(0.5), ccy = Y(0.845);
+  const rows = [['gold', 0.008], [P.wings[0], 0.014], ['gold', 0.005], [P.wings[1], 0.013], ['gold', 0.005], [P.wings[2], 0.014], ['gold', 0.005], [P.wings[0], 0.018], ['gold', 0.006]];
+  let r0 = 0.03 * H;
   for (const [c, dv] of rows) {
     const r1 = r0 + dv * H;
     g.beginPath(); g.arc(ccx, ccy, r1, 0, Math.PI); g.arc(ccx, ccy, r0, Math.PI, 0, true); g.closePath();
@@ -92,15 +97,13 @@ function paintLid(g, pal, W, H, P) {
     }
     r0 = r1;
   }
-  // lengüetas del nemes a ambos lados del rostro
-  for (const u0 of [0.25, 0.64]) stripesH(g, pal, P, X(u0), Y(0.885), X(0.11), Y(0.76) - Y(0.885), 9);
-  // tocado nemes (cabeza)
-  stripesH(g, pal, P, 0, 0, W, Y(0.885), 10);
   // rostro y cuello: oro liso
   g.fillStyle = pal.gold;
-  g.beginPath(); g.ellipse(X(0.5), Y(0.875), X(0.12), (Y(0.83) - Y(0.92)) / 2, 0, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(X(0.5), Y(0.9), X(0.13), (Y(0.84) - Y(0.965)) / 2, 0, 0, Math.PI * 2); g.fill();
+  g.fillRect(X(0.42), Y(0.86), X(0.16), Y(0.835) - Y(0.86));
   // banda de los pies
-  g.fillStyle = pal.gold; g.fillRect(0, Y(0.035), W, H - Y(0.035));
+  g.fillStyle = pal.gold; g.fillRect(0, Y(0.04), W, H - Y(0.04));
+  g.fillStyle = pal.goldDark; g.fillRect(0, Y(0.045), W, 3 * s);
 }
 
 function paintBase(g, pal, W, H, P) {

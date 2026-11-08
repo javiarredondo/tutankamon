@@ -2,7 +2,7 @@
 // Las decoraciones son ESQUEMÁTICAS: sugieren el tipo de superficie (oro, fayenza, piedra,
 // lino, incrustaciones) pero no reproducen textos ni iconografía real de las piezas.
 import * as THREE from 'three';
-import { inlayMaps, goldGrain, pseudoGlyphs, normalFromCanvas, TEX_SCALE } from './inlay.js';
+import { inlayMaps, goldGrain, pseudoGlyphs, normalFromCanvas, TEX_SCALE, addWear } from './inlay.js';
 
 const texCache = new Map();
 
@@ -160,6 +160,14 @@ export function pallTexture() {
   });
 }
 
+/** Mapa de rugosidad con desgaste para el oro macizo (G = rugosidad, B = metal). */
+function wearMap() {
+  return canvasTexture('wear', 256, (g, s) => {
+    g.fillStyle = 'rgb(0,150,255)'; g.fillRect(0, 0, s, s);
+    addWear(g, s, s, 5);
+  }, { repeat: [2, 2], srgb: false });
+}
+
 export function floorTexture() {
   return canvasTexture('floor', 512, (g, s) => {
     g.fillStyle = '#17120e'; g.fillRect(0, 0, s, s);
@@ -175,7 +183,7 @@ export const M = {
   gold(map, { rough = 0.32, color = 0xffffff } = {}) {
     return new THREE.MeshStandardMaterial({ color: map ? color : 0xd8ab4f, map: map || null, metalness: 1, roughness: rough, side: THREE.DoubleSide });
   },
-  solidGold(rough = 0.24) { return new THREE.MeshStandardMaterial({ color: 0xe0b45a, metalness: 1, roughness: rough, side: THREE.DoubleSide }); },
+  solidGold(rough = 0.24) { return new THREE.MeshStandardMaterial({ color: 0xe0b45a, metalness: 1, roughness: Math.min(1, rough * 1.35), roughnessMap: wearMap(), side: THREE.DoubleSide }); },
   copper() { return new THREE.MeshStandardMaterial({ color: 0x9a5a34, metalness: 0.9, roughness: 0.45 }); },
   wood() { return new THREE.MeshStandardMaterial({ color: 0x6e4a2b, metalness: 0, roughness: 0.8 }); },
   stone(kind) { const t = stoneTexture(kind); return new THREE.MeshStandardMaterial({ map: t, normalMap: bumpFrom(t, 3), metalness: 0, roughness: 0.85, side: THREE.DoubleSide }); },
