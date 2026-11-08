@@ -23,6 +23,10 @@ más una galería de ocho objetos del ajuar. Textos en español, con cada dato m
 
 **Por qué sin React:** la interfaz es pequeña (una lista, una cartela, una ficha) y el estado vive en el sistema de capas. Añadir React no aporta y complicaría la sincronización con el bucle de render de Three.js.
 
+Los estados de la interacción (modo, etapa, vista, orden en curso, ficha, giro automático, vuelos de
+cámara, calidad y descargas) son máquinas de estado explícitas, inventariadas en
+[docs/state-machines.md](docs/state-machines.md). Para pruebas automáticas y agentes, ver [AGENTS.md](AGENTS.md).
+
 ### Flujo
 ```
 main.js ──► scene.js (renderer, luces, cámaras, OrbitControls)
@@ -56,6 +60,7 @@ tutankamon/
 │   │   └── galleryModels.js Objetos de la galería
 │   ├── layers/layerSystem.js  Navegación entre capas y vistas
 │   ├── gallery/gallery.js     Galería de objetos
+│   ├── gallery/autoRotate.js  Giro automático de la galería (máquina de estados)
 │   ├── ui/infoPanel.js        Ficha histórica
 │   └── data/
 │       ├── structures.js    Las 9 capas + palio (medidas, textos, datos, fuentes)
@@ -63,6 +68,8 @@ tutankamon/
 │       ├── gallery.js       Los 8 objetos de la galería
 │       └── sources.js       Bibliografía y fuentes
 ├── assets/                  mask.glb (máscara) y hall.exr (entorno HDR), se cargan aparte
+├── docs/state-machines.md   Inventario de estados y transiciones
+├── AGENTS.md                Cómo leer y manejar el estado desde pruebas o agentes
 ├── build-artifact.mjs       Genera dist/ (página con Three.js empaquetado + assets/)
 ├── vercel.json              Caché de assets/ en Vercel
 └── package.json

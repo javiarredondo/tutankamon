@@ -2,15 +2,38 @@
 // los datos documentados, las interpretaciones y lo que está por verificar.
 import { SOURCES, BADGES } from '../data/sources.js';
 
+/**
+ * Estados de la ficha:
+ *   closed ──show()──► open ──hide()──► closing ──(180 ms, 0 si se reduce el movimiento)──► closed
+ *                       ▲                  │
+ *                       └─────show()───────┘   (reabrir durante el fundido lo cancela)
+ * `onClose` se avisa al empezar a cerrar (open → closing); `onStateChange` en cada cambio.
+ */
+export const PANEL = Object.freeze({ CLOSED: 'closed', OPEN: 'open', CLOSING: 'closing' });
+
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 export class InfoPanel {
   constructor(root, body, closeBtn) {
     this.root = root; this.body = body;
     this.currentId = null;
+    this.state = PANEL.CLOSED;
     this.onClose = null;
+    this.onStateChange = null;
     closeBtn.addEventListener('click', () => this.hide());
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !this.root.hidden) this.hide(); });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.hide(); });
+  }
+
+  /** Visible y sin estar cerrándose. */
+  get isOpen() { return this.state === PANEL.OPEN; }
+
+  _setState(state) {
+    if (state === this.state) return;
+    this.state = state;
+    this.root.classList.toggle('closing', state === PANEL.CLOSING);
+    this.root.hidden = state === PANEL.CLOSED;
+    document.body.classList.toggle('panel-open', state === PANEL.OPEN);
+    this.onStateChange?.(state);
   }
 
   show(item, actions = []) {
@@ -58,21 +81,18 @@ export class InfoPanel {
       act.appendChild(b);
     }
     clearTimeout(this._t);
-    this.root.classList.remove('closing');
-    this.root.hidden = false;
-    document.body.classList.add('panel-open');
+    this._setState(PANEL.OPEN);
     this.body.scrollTop = 0;
   }
 
   hide() {
-    if (this.root.hidden || this.root.classList.contains('closing')) return;
+    if (this.state !== PANEL.OPEN) return;
     this.currentId = null;
-    document.body.classList.remove('panel-open');
+    this._setState(PANEL.CLOSING);
     this.onClose && this.onClose();
     // fundido de salida breve (inmediato si se pide reducir el movimiento)
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    this.root.classList.add('closing');
     clearTimeout(this._t);
-    this._t = setTimeout(() => { this.root.hidden = true; this.root.classList.remove('closing'); }, reduce ? 0 : 180);
+    this._t = setTimeout(() => this._setState(PANEL.CLOSED), reduce ? 0 : 180);
   }
 }

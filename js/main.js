@@ -1,17 +1,55 @@
 // Punto de entrada: crea las dos escenas (cámara funeraria y galería), conecta la interfaz,
 // la selección con ratón/táctil y el bucle de render bajo demanda.
+//
+// Todo el estado de la app está en máquinas explícitas (inventario en docs/state-machines.md):
+//   arranque (BOOT), modo (MODES), capas y vistas (LayerSystem), ficha (InfoPanel),
+//   giro automático (AutoRotate), vuelos de cámara (canal en tween.js), calidad (QUALITY)
+//   y descargas (assetStatus). `appState()` las reúne en una foto, que también se refleja en
+//   atributos data-* de #app y en window.__tut.state().
 import * as THREE from 'three';
-import { createRenderer, createTombStage, createGalleryStage, createControls, createLabelRenderer } from './core/scene.js';
+import { createRenderer, createTombStage, createGalleryStage, createControls, createLabelRenderer, stopFlight } from './core/scene.js';
 import { updateTweens, tweensRunning, setBaseSpeed } from './core/tween.js';
 import { buildFunerarySet } from './models/funerary.js';
 import { LayerSystem } from './layers/layerSystem.js';
 import { Gallery } from './gallery/gallery.js';
+import { AutoRotate } from './gallery/autoRotate.js';
 import { InfoPanel } from './ui/infoPanel.js';
 import { STRUCTURES, EXTRA_INFO } from './data/structures.js';
 import { GALLERY } from './data/gallery.js';
-import { createComposer, defaultQuality, saveQuality } from './core/postfx.js';
+import { createComposer, defaultQuality, saveQuality, QUALITY } from './core/postfx.js';
+import { assetStatus } from './core/assets.js';
 
 const $ = (id) => document.getElementById(id);
+
+/** Arranque: loading ──primer fotograma──► ready;  loading ──WebGL o init fallan──► error. */
+const BOOT = Object.freeze({ LOADING: 'loading', READY: 'ready', ERROR: 'error' });
+let boot = BOOT.LOADING;
+function setBoot(state, message) {
+  boot = state;
+  const app = $('app');
+  if (app) app.dataset.boot = state;
+  if (state !== BOOT.LOADING) $('loading')?.classList.add('done');
+  if (state === BOOT.ERROR) { const err = $('error'); if (err) { err.hidden = false; err.textContent = message; } }
+}
+
+/**
+ * Modos de la app (pestañas superiores). Cualquier modo puede pasar a cualquier otro;
+ * cada uno declara aquí lo que cambia en la interfaz, y setMode() solo aplica esta tabla.
+ */
+const MODES = Object.freeze({
+  discovery: {
+    scene: 'tomb', compactGuide: false, layerJump: false, keys: true,
+    hint: 'Arrastra para girar · rueda o pellizco para acercar · toca una pieza para ver su ficha',
+  },
+  free: {
+    scene: 'tomb', compactGuide: true, layerJump: true, keys: true,
+    hint: 'Toca cualquier pieza visible para ver su ficha · usa la lista de capas para saltar',
+  },
+  gallery: {
+    scene: 'gallery', compactGuide: false, layerJump: false, keys: false,
+    hint: 'Arrastra para girar la pieza · rueda o pellizco para acercar',
+  },
+});
 
 function infoById(id) {
   return STRUCTURES.find((s) => s.id === id) || EXTRA_INFO[id] || GALLERY.find((g) => g.id === id && g.nombre);
@@ -22,9 +60,7 @@ function init() {
   let renderer;
   try { renderer = createRenderer(canvas); }
   catch (e) {
-    $('loading').classList.add('done');
-    const err = $('error'); err.hidden = false;
-    err.textContent = 'Este navegador no ha podido iniciar WebGL, necesario para la escena 3D. Prueba con una versión reciente de Chrome, Edge, Firefox o Safari, o activa la aceleración por hardware.';
+    setBoot(BOOT.ERROR, 'Este navegador no ha podido iniciar WebGL, necesario para la escena 3D. Prueba con una versión reciente de Chrome, Edge, Firefox o Safari, o activa la aceleración por hardware.');
     return;
   }
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) setBaseSpeed(2.2);
@@ -38,10 +74,13 @@ function init() {
   const gal = createGalleryStage(renderer);
   const galControls = createControls(gal.camera, canvas);
   galControls.enabled = false;
-  galControls.autoRotate = true;
   galControls.maxPolarAngle = Math.PI * 0.6;
+  // si el visitante toma la cámara, se detiene el vuelo automático en curso en vez de pelear con él
+  tombControls.addEventListener('start', () => stopFlight(tomb.camera));
+  galControls.addEventListener('start', () => stopFlight(gal.camera));
 
   const panel = new InfoPanel($('panel'), $('panel-body'), $('panel-close'));
+  panel.onStateChange = () => publishState();
   let selected = null;
 
   const ui = {
@@ -53,7 +92,7 @@ function init() {
 
   const layers = new LayerSystem({
     scene: tomb.scene, camera: tomb.camera, controls: tombControls, structures,
-    onChange: (kind) => { refreshUI(); dirty = true; if (kind === 'opened' && ui.mode === 'discovery') pulseGuide(); },
+    onChange: (type) => { refreshUI(); dirty = true; if (type === 'opened' && ui.mode === 'discovery') pulseGuide(); },
   });
 
   const gallery = new Gallery({
@@ -69,8 +108,9 @@ function init() {
     b.id = `layer-${i}`;
     b.innerHTML = `<span class="n">${i + 1}</span><span>${s.short}</span>`;
     b.addEventListener('click', () => {
-      if (ui.mode !== 'free') return;
-      layers.goTo(i).then(() => select(structures[i], s.id));
+      if (!MODES[ui.mode].layerJump) return;
+      // si había otra orden en curso, goTo no hace nada y tampoco se abre la ficha
+      layers.goTo(i).then((done) => done && select(structures[i], s.id));
     });
     li.appendChild(b);
     ui.list.appendChild(li);
@@ -106,9 +146,10 @@ function init() {
     for (const id of ['btn-overview', 'btn-explode', 'btn-reset']) $(id).disabled = busy;
     $('btn-overview').setAttribute('aria-pressed', String(layers.xray));
     $('btn-explode').setAttribute('aria-pressed', String(layers.exploded));
-    ui.layersBox.classList.toggle('interactive', ui.mode === 'free' && !busy);
+    ui.layersBox.classList.toggle('interactive', MODES[ui.mode].layerJump && !busy);
     // si la ficha abierta es de una estructura, refrescar sus acciones
-    if (!panel.root.hidden && selected && selected.structure) showStructureInfo(selected.structure, selected.infoId, false);
+    if (panel.isOpen && selected && selected.structure) showStructureInfo(selected.structure, selected.infoId, false);
+    publishState();
   }
   const lower = (s) => s.charAt(0).toLowerCase() + s.slice(1);
   function pulseGuide() {
@@ -126,7 +167,7 @@ function init() {
   $('btn-reset').addEventListener('click', () => { clearSelection(); panel.hide(); layers.reset(); });
 
   window.addEventListener('keydown', (e) => {
-    if (ui.mode === 'gallery' || e.target.closest?.('input,textarea')) return;
+    if (!MODES[ui.mode].keys || e.target.closest?.('input,textarea')) return;
     if (e.key === 'ArrowRight') layers.next();
     if (e.key === 'ArrowLeft') layers.prev();
   });
@@ -143,7 +184,7 @@ function init() {
     if (infoId !== 'mascara' && infoId !== 'palio') {
       if (s.index === layers.opened && layers.openable) actions.push({ label: `Abrir ${lower(s.def.short)}`, primary: true, disabled: layers.busy, run: () => layers.next() });
       if (s.index === layers.opened - 1) actions.push({ label: 'Volver a cerrar', disabled: layers.busy, run: () => layers.prev() });
-      if (s.index > layers.opened && ui.mode === 'free') actions.push({ label: 'Ir a esta capa', disabled: layers.busy, run: () => layers.goTo(s.index) });
+      if (s.index > layers.opened && MODES[ui.mode].layerJump) actions.push({ label: 'Ir a esta capa', disabled: layers.busy, run: () => layers.goTo(s.index) });
     }
     if (infoId === 'mascara') actions.push({ label: 'Ver en la galería', run: () => { setMode('gallery'); showGalleryItem('mascara', { info: true }); } });
     if (s.index === 7) actions.push({ label: 'Ver en la galería', run: () => { setMode('gallery'); showGalleryItem('ataud-interior', { info: true }); } });
@@ -168,7 +209,7 @@ function init() {
     if (!downAt || Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 6) return;
     const r = canvas.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-    if (ui.mode === 'gallery') return;
+    if (MODES[ui.mode].scene !== 'tomb') return;
     raycaster.setFromCamera(ndc, tomb.camera);
     const hits = raycaster.intersectObject(layers.group, true).filter((h) => {
       const s = h.object.userData.structure;
@@ -204,20 +245,24 @@ function init() {
     dirty = true;
   }
   $('btn-gallery-info').addEventListener('click', () => gallery.current && showGalleryInfo(gallery.current.id));
-  $('btn-autorotate').addEventListener('click', (e) => {
-    galControls.autoRotate = !galControls.autoRotate;
-    e.currentTarget.setAttribute('aria-pressed', String(galControls.autoRotate));
+  // giro automático: se pausa mientras el visitante manipula la pieza y se reanuda 2,5 s después
+  const autoRotate = new AutoRotate(galControls, {
+    onChange: () => {
+      $('btn-autorotate').setAttribute('aria-pressed', String(autoRotate.enabled));
+      dirty = true;
+      publishState();
+    },
   });
+  $('btn-autorotate').addEventListener('click', () => autoRotate.toggle());
   $('btn-gallery-reset').addEventListener('click', () => gallery.current && gallery.show(gallery.current.id));
-  // detener el giro automático mientras el usuario manipula la pieza
-  galControls.addEventListener('start', () => { galControls._wasAuto = galControls.autoRotate; galControls.autoRotate = false; });
-  galControls.addEventListener('end', () => { setTimeout(() => { if (galControls._wasAuto) galControls.autoRotate = true; }, 2500); });
 
   // ------------------------------------------------------------ modos
   function setMode(mode) {
+    const cfg = MODES[mode];
+    if (!cfg) throw new Error(`Modo desconocido: ${mode}`);
     ui.mode = mode;
     for (const b of document.querySelectorAll('.mode')) b.setAttribute('aria-selected', String(b.dataset.mode === mode));
-    const isGallery = mode === 'gallery';
+    const isGallery = cfg.scene === 'gallery';
     tombControls.enabled = !isGallery;
     galControls.enabled = isGallery;
     $('tomb-tools').hidden = isGallery;
@@ -226,16 +271,11 @@ function init() {
     ui.guide.hidden = isGallery;
     $('gallery-bar').hidden = !isGallery;
     $('labels').hidden = isGallery;
-    ui.guide.classList.toggle('compact', mode === 'free');
+    ui.guide.classList.toggle('compact', cfg.compactGuide);
     panel.hide();
     clearSelection();
-    if (isGallery && !gallery.current) showGalleryItem(GALLERY[0].id);
-    else if (isGallery) showGalleryItem(gallery.current.id);
-    $('hint').textContent = isGallery
-      ? 'Arrastra para girar la pieza · rueda o pellizco para acercar'
-      : mode === 'free'
-        ? 'Toca cualquier pieza visible para ver su ficha · usa la lista de capas para saltar'
-        : 'Arrastra para girar · rueda o pellizco para acercar · toca una pieza para ver su ficha';
+    if (isGallery) showGalleryItem((gallery.current || GALLERY[0]).id);
+    $('hint').textContent = cfg.hint;
     refreshUI();
     dirty = true;
   }
@@ -248,7 +288,7 @@ function init() {
   window.addEventListener('tut:redraw', () => { dirty = true; });
 
   // calidad: «alta» añade oclusión ambiental (posprocesado); se crea solo al usarse
-  let quality = defaultQuality();
+  let quality = defaultQuality(); // QUALITY.HIGH | QUALITY.NORMAL
   const fx = { tomb: null, gal: null };
   function composerFor(which) {
     if (!fx[which]) {
@@ -260,17 +300,23 @@ function init() {
     return fx[which];
   }
   function refreshQuality() {
+    const high = quality === QUALITY.HIGH;
     for (const b of document.querySelectorAll('.btn-quality')) {
-      b.textContent = quality === 'alta' ? 'Calidad: alta' : 'Calidad: normal';
-      b.setAttribute('aria-pressed', String(quality === 'alta'));
-      b.title = quality === 'alta' ? 'Sombreado de relieves activado (más exigente)' : 'Modo ligero para tabletas y equipos modestos';
+      b.textContent = high ? 'Calidad: alta' : 'Calidad: normal';
+      b.setAttribute('aria-pressed', String(high));
+      b.title = high ? 'Sombreado de relieves activado (más exigente)' : 'Modo ligero para tabletas y equipos modestos';
     }
   }
-  for (const b of document.querySelectorAll('.btn-quality')) b.addEventListener('click', () => {
-    quality = quality === 'alta' ? 'normal' : 'alta';
+  function setQuality(q) {
+    if (!Object.values(QUALITY).includes(q)) throw new Error(`Calidad desconocida: ${q}`);
+    quality = q;
     saveQuality(quality);
     refreshQuality();
+    publishState();
     dirty = true;
+  }
+  for (const b of document.querySelectorAll('.btn-quality')) b.addEventListener('click', () => {
+    setQuality(quality === QUALITY.HIGH ? QUALITY.NORMAL : QUALITY.HIGH);
   });
   refreshQuality();
 
@@ -285,6 +331,29 @@ function init() {
   window.addEventListener('resize', resize);
   resize();
 
+  // ------------------------------------------------------------ estado observable
+  /** Foto serializable de todas las máquinas de estado (para pruebas, depuración y agentes). */
+  function appState() {
+    return {
+      boot, mode: ui.mode,
+      layers: layers.snapshot(),
+      panel: panel.state,
+      selection: selected ? selected.infoId : null,
+      gallery: { item: gallery.current?.id ?? null, autoRotate: autoRotate.state },
+      quality,
+      assets: { ...assetStatus },
+    };
+  }
+  // reflejo en el DOM: <div id="app" data-mode="free" data-view="nested" data-activity="idle" …>
+  const appEl = $('app');
+  function publishState() {
+    const st = appState(), d = appEl.dataset;
+    d.boot = st.boot; d.mode = st.mode;
+    d.opened = st.layers.opened; d.view = st.layers.view; d.activity = st.layers.activity;
+    d.panel = st.panel; d.autorotate = st.gallery.autoRotate; d.quality = st.quality;
+  }
+  window.addEventListener('tut:asset', () => publishState());
+
   layers.updateLabels();
   layers.frameCurrent(0);
   refreshUI();
@@ -296,30 +365,31 @@ function init() {
     const dt = Math.min(clock.getDelta(), 0.1);
     const animating = tweensRunning();
     updateTweens(dt);
-    const isGallery = ui.mode === 'gallery';
+    const isGallery = MODES[ui.mode].scene === 'gallery';
     const ctl = isGallery ? galControls : tombControls;
     const moved = ctl.update(dt);
-    if (!(dirty || animating || moved || (isGallery && galControls.autoRotate))) return;
+    if (!(dirty || animating || moved || (isGallery && autoRotate.rotating))) return;
     dirty = false;
-    const high = quality === 'alta';
+    const high = quality === QUALITY.HIGH;
     if (isGallery) {
       if (high) composerFor('gal').render(); else renderer.render(gal.scene, gal.camera);
     } else {
       if (high) composerFor('tomb').render(); else renderer.render(tomb.scene, tomb.camera);
       labelRenderer.render(tomb.scene, tomb.camera);
     }
-    if (first) { first = false; $('loading').classList.add('done'); }
+    if (first) { first = false; setBoot(BOOT.READY); publishState(); }
   }
   frame();
 
-  // acceso para pruebas automáticas
-  window.__tut = { layers, gallery, setMode, select, structures, panel, showGalleryItem, setBaseSpeed };
+  // acceso para pruebas automáticas y agentes (ver AGENTS.md)
+  window.__tut = {
+    state: appState, layers, gallery, autoRotate, panel, structures,
+    setMode, setQuality, select, showGalleryItem, setBaseSpeed,
+  };
 }
 
 try { init(); }
 catch (e) {
   console.error(e);
-  const err = document.getElementById('error');
-  document.getElementById('loading')?.classList.add('done');
-  if (err) { err.hidden = false; err.textContent = 'No se ha podido iniciar la escena: ' + e.message; }
+  setBoot(BOOT.ERROR, 'No se ha podido iniciar la escena: ' + e.message);
 }
