@@ -84,7 +84,7 @@ Para trabajar sin conexión: `npm install` y cambia el `importmap` de `index.htm
 
 Opciones:
 - `http://localhost:8000/?lite` — sin sombras y con menor resolución, para equipos modestos.
-- `npm run build` (tras `npm install`) — genera `dist/tutankamon.html` (fragmento para el artifact) y
+- `npm run build:dist` (tras `npm install`) — genera `dist/tutankamon.html` (fragmento para el artifact) y
   `dist/tutankamon-local.html` (documento completo), con CSS y JS en línea y Three.js minificado dentro
   (no necesita CDN), más `dist/assets/`. La página carga `assets/mask.glb` y `assets/hall.exr` por
   ruta relativa, así que al publicar el artifact hay que subir esos dos archivos junto a la página.

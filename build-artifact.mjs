@@ -5,7 +5,7 @@
 //                               que es la que lee esta versión (el artifact solo sirve tipos web)
 // Three.js va dentro del bundle (minificado y sin las partes que no se usan), así que no
 // depende de ningún CDN. Los modelos 3D NO se incrustan: se descargan en segundo plano.
-// Uso: npm run build   (o: node build-artifact.mjs)
+// Uso: npm run build:dist   (o: node build-artifact.mjs)
 import { build } from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync, cpSync, readdirSync } from 'node:fs';
 

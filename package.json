@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Cámara de Tutankamón: prototipo 3D interactivo (Three.js)",
   "scripts": {
-    "build": "node build-artifact.mjs",
+    "build:dist": "node build-artifact.mjs",
     "serve": "python3 -m http.server 8000"
   },
   "keywords": [],
