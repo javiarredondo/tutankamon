@@ -40,54 +40,76 @@ export function addWear(g, W, H, seed = 1) {
   const r = rng(seed * 31 + 7);
   const k = (W * H) / (512 * 512);
   g.save();
-  g.globalCompositeOperation = 'lighter';
+  // manchas suaves: se pintan a 1/4 de resolución y se suman ampliadas (son difusas y grandes,
+  // así que el resultado es el mismo con 16 veces menos píxeles que rellenar)
+  const q = 4, lo = document.createElement('canvas');
+  lo.width = Math.ceil(W / q); lo.height = Math.ceil(H / q);
+  const lg = ctx2d(lo);
+  lg.globalCompositeOperation = 'lighter';
   for (let i = 0; i < 70 * k; i++) {
     const x = r() * W, y = r() * H, rad = (20 + r() * 70) * Math.sqrt(k);
-    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+    const grd = lg.createRadialGradient(x / q, y / q, 0, x / q, y / q, rad / q);
     grd.addColorStop(0, `rgba(0,${Math.round(6 + r() * 12)},0,1)`);
     grd.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grd;
-    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    lg.fillStyle = grd;
+    lg.fillRect((x - rad) / q, (y - rad) / q, (rad * 2) / q, (rad * 2) / q);
   }
+  g.globalCompositeOperation = 'lighter';
+  g.drawImage(lo, 0, 0, lo.width * q, lo.height * q);
+  // motas de un píxel: se suman directamente al canal G (mucho más rápido que miles de fillRect)
+  const img = g.getImageData(0, 0, W, H), px = img.data;
   for (let i = 0; i < 5000 * k; i++) {
-    g.fillStyle = `rgba(0,${Math.round(r() * 30)},0,1)`;
-    g.fillRect(r() * W, r() * H, 1, 1);
+    const v = Math.round(r() * 30), x = Math.floor(r() * W), y = Math.floor(r() * H);
+    const j = ((y * W + x) << 2) + 1;
+    px[j] = Math.min(255, px[j] + v);
   }
+  g.putImageData(img, 0, 0);
   g.globalCompositeOperation = 'darken';
   g.strokeStyle = 'rgba(255,40,255,0.6)';
   g.lineWidth = 1;
+  // arañazos en un solo trazo (con «darken» el resultado es igual que trazarlos uno a uno)
+  g.beginPath();
   for (let i = 0; i < 160 * k; i++) {
     const x = r() * W, y = r() * H, a = r() * Math.PI, l = 6 + r() * 30;
-    g.beginPath();
     g.moveTo(x, y);
     g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
-    g.stroke();
   }
+  g.stroke();
   g.restore();
 }
 
-/** Normal map a partir de la luminancia de un canvas (alto = claro). */
+/**
+ * Contexto 2D para lienzos que luego se leen con getImageData. Con `willReadFrequently` el
+ * navegador los mantiene en memoria de CPU: leer un lienzo acelerado por GPU obliga a copiarlo
+ * de vuelta, y eso era casi todo el tiempo de arranque (≈ 20 millones de píxeles leídos).
+ */
+export function ctx2d(canvas) {
+  return canvas.getContext('2d', { willReadFrequently: true });
+}
+
+/** Normal map a partir de la luminancia de un canvas (alto = claro). Bordes con repetición. */
 export function normalFromCanvas(src, strength = 2.5) {
-  const w = src.width, h = src.height;
-  const sd = src.getContext('2d').getImageData(0, 0, w, h).data;
-  const L = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) L[i] = (sd[i * 4] * 0.3 + sd[i * 4 + 1] * 0.59 + sd[i * 4 + 2] * 0.11) / 255;
+  const w = src.width, h = src.height, n = w * h;
+  const sd = ctx2d(src).getImageData(0, 0, w, h).data;
+  // luminancia ya multiplicada por la intensidad del relieve
+  const L = new Float32Array(n);
+  const k = strength / 255;
+  for (let i = 0, j = 0; i < n; i++, j += 4) L[i] = (sd[j] * 0.3 + sd[j + 1] * 0.59 + sd[j + 2] * 0.11) * k;
   const out = document.createElement('canvas');
   out.width = w; out.height = h;
   const og = out.getContext('2d');
   const img = og.createImageData(w, h);
   const d = img.data;
   for (let y = 0; y < h; y++) {
-    const y0 = (y - 1 + h) % h, y1 = (y + 1) % h;
+    const row = y * w, up = (y === 0 ? h - 1 : y - 1) * w, dn = (y === h - 1 ? 0 : y + 1) * w;
     for (let x = 0; x < w; x++) {
-      const x0 = (x - 1 + w) % w, x1 = (x + 1) % w;
-      const dx = (L[y * w + x1] - L[y * w + x0]) * strength;
-      const dy = (L[y1 * w + x] - L[y0 * w + x]) * strength;
-      let nx = -dx, ny = dy, nz = 1;
-      const len = Math.hypot(nx, ny, nz);
-      nx /= len; ny /= len; nz /= len;
-      const i = (y * w + x) * 4;
-      d[i] = (nx * 0.5 + 0.5) * 255; d[i + 1] = (ny * 0.5 + 0.5) * 255; d[i + 2] = (nz * 0.5 + 0.5) * 255; d[i + 3] = 255;
+      const xl = x === 0 ? w - 1 : x - 1, xr = x === w - 1 ? 0 : x + 1;
+      // normal = normalize(-dL/dx, dL/dy, 1), codificada en 0..255
+      const nx = L[row + xl] - L[row + xr];
+      const ny = L[dn + x] - L[up + x];
+      const inv = 127.5 / Math.sqrt(nx * nx + ny * ny + 1);
+      const i = (row + x) << 2;
+      d[i] = nx * inv + 127.5; d[i + 1] = ny * inv + 127.5; d[i + 2] = inv + 127.5; d[i + 3] = 255;
     }
   }
   og.putImageData(img, 0, 0);
@@ -112,13 +134,13 @@ export function inlayMaps(key, W, H, draw, { repeat = [1, 1], normal = 2.5, seed
   if (cache.has(k)) return cache.get(k);
   const mk = (pal) => {
     const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const g = c.getContext('2d');
+    const g = ctx2d(c);
     draw(g, { ...pal, rng: rng(seed) }, W, H);
     return c;
   };
   const color = mk(COLOR);
   const orm = mk(ORM);
-  addWear(orm.getContext('2d'), W, H, seed);
+  addWear(ctx2d(orm), W, H, seed);
   const res = {
     map: toTex(color, true, repeat),
     ormMap: toTex(orm, false, repeat),

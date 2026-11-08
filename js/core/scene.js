@@ -4,7 +4,6 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
-import HDRI_HALL from '../assets/hdriHall.js';
 import { floorTexture } from './materials.js';
 import { tween, Ease } from './tween.js';
 
@@ -29,11 +28,12 @@ export function createRenderer(canvas) {
  * Entorno de reflejos: primero uno neutro generado en código (RoomEnvironment) y, cuando
  * termina de decodificarse, el HDRI de sala; así la escena se ve desde el primer fotograma.
  */
+const HDRI_URL = 'assets/hall.exr';
 let hdrPromise = null;
 function environment(renderer, scene) {
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  if (!hdrPromise) hdrPromise = new EXRLoader().loadAsync(HDRI_HALL);
+  if (!hdrPromise) hdrPromise = new EXRLoader().loadAsync(new URL(HDRI_URL, document.baseURI).href);
   hdrPromise.then((tex) => {
     tex.mapping = THREE.EquirectangularReflectionMapping;
     const old = scene.environment;

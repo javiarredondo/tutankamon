@@ -2,7 +2,7 @@
 // Las decoraciones son ESQUEMÁTICAS: sugieren el tipo de superficie (oro, fayenza, piedra,
 // lino, incrustaciones) pero no reproducen textos ni iconografía real de las piezas.
 import * as THREE from 'three';
-import { inlayMaps, goldGrain, pseudoGlyphs, normalFromCanvas, TEX_SCALE, addWear } from './inlay.js';
+import { inlayMaps, goldGrain, pseudoGlyphs, normalFromCanvas, TEX_SCALE, addWear, ctx2d } from './inlay.js';
 
 const texCache = new Map();
 
@@ -11,7 +11,7 @@ function canvasTexture(key, size, draw, { repeat = [1, 1], srgb = true } = {}) {
   if (texCache.has(k)) return texCache.get(k);
   const c = document.createElement('canvas');
   c.width = c.height = size;
-  const g = c.getContext('2d');
+  const g = ctx2d(c);
   draw(g, size);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;

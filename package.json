@@ -1,10 +1,10 @@
 {
   "name": "tutankamon",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Cámara de Tutankamón: prototipo 3D interactivo (Three.js)",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "node build-artifact.mjs",
+    "serve": "python3 -m http.server 8000"
   },
   "keywords": [],
   "author": "",
@@ -14,5 +14,7 @@
   },
   "devDependencies": {
     "esbuild": "^0.24.0"
-  }
+  },
+  "private": true,
+  "type": "module"
 }

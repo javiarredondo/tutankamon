@@ -18,7 +18,7 @@ más una galería de ocho objetos del ajuar. Textos en español, con cada dato m
 | Animaciones de apertura sin inventar mecanismos históricos | Puertas que giran y tapas que se elevan, presentadas como **representación explicativa**. La ficha lo indica. |
 | Saber en todo momento qué se ve y qué protege a qué | Lista de capas con estado, barra de progreso, etiqueta 3D en la capa actual y cartela con «Protege a: …». |
 | Vista general y vista separada | «Vista general»: todas las capas translúcidas en su sitio. «Capas separadas»: las nueve piezas se alinean en dos filas (santuarios detrás; sarcófago, ataúdes y momia delante), numeradas. |
-| Rendimiento en portátiles y tabletas | Render bajo demanda (solo cuando algo cambia), pixel ratio limitado, sombras de 1024 px en pantallas pequeñas, texturas generadas con `<canvas>` (sin descargas). Modo `?lite` sin sombras. |
+| Rendimiento en portátiles y tabletas | Render bajo demanda (solo cuando algo cambia), pixel ratio limitado, sombras de 1024 px en pantallas pequeñas, texturas generadas con `<canvas>` en memoria de CPU (`willReadFrequently`, ver abajo). Máscara y HDRI se descargan aparte, sin bloquear el primer fotograma. Modo `?lite` sin sombras; `?calidad=alta|normal` fuerza la oclusión ambiental. |
 | Rigor histórico | Datos separados del código (`js/data/`), con tipo de afirmación y fuentes por ficha. |
 
 **Por qué sin React:** la interfaz es pequeña (una lista, una cartela, una ficha) y el estado vive en el sistema de capas. Añadir React no aporta y complicaría la sincronización con el bucle de render de Three.js.
@@ -46,19 +46,25 @@ tutankamon/
 │   │   ├── materials.js     Materiales y texturas procedurales (oro, fayenza, piedra, lino…)
 │   │   ├── inlay.js         Texturas de taracea: color + rugosidad/metal + relieve
 │   │   ├── coffinTextures.js  Decoración pintada de los tres ataúdes
+│   │   ├── postfx.js        Calidad alta: oclusión ambiental (GTAO)
 │   │   └── tween.js         Motor de interpolaciones
 │   ├── models/
 │   │   ├── structure.js     Clase base de cada capa funeraria
 │   │   ├── funerary.js      Santuarios, palio, sarcófago, ataúdes, momia, máscara
+│   │   ├── coffinGeometry.js  Envolvente de los ataúdes a partir de la silueta medida
+│   │   ├── externalMask.js  Carga del modelo glTF de la máscara
 │   │   └── galleryModels.js Objetos de la galería
 │   ├── layers/layerSystem.js  Navegación entre capas y vistas
 │   ├── gallery/gallery.js     Galería de objetos
 │   ├── ui/infoPanel.js        Ficha histórica
 │   └── data/
 │       ├── structures.js    Las 9 capas + palio (medidas, textos, datos, fuentes)
+│       ├── coffinShape.js   Silueta medida de los ataúdes (101 secciones)
 │       ├── gallery.js       Los 8 objetos de la galería
 │       └── sources.js       Bibliografía y fuentes
-├── build-artifact.mjs       Genera dist/tutankamon.html (una sola página)
+├── assets/                  mask.glb (máscara) y hall.exr (entorno HDR), se cargan aparte
+├── build-artifact.mjs       Genera dist/ (página con Three.js empaquetado + assets/)
+├── vercel.json              Caché de assets/ en Vercel
 └── package.json
 ```
 
@@ -78,7 +84,20 @@ Para trabajar sin conexión: `npm install` y cambia el `importmap` de `index.htm
 
 Opciones:
 - `http://localhost:8000/?lite` — sin sombras y con menor resolución, para equipos modestos.
-- `node build-artifact.mjs` (tras `npm install`) — genera `dist/tutankamon.html`, una sola página con CSS y JS en línea.
+- `npm run build` (tras `npm install`) — genera `dist/tutankamon.html` (fragmento para el artifact) y
+  `dist/tutankamon-local.html` (documento completo), con CSS y JS en línea y Three.js minificado dentro
+  (no necesita CDN), más `dist/assets/`. La página carga `assets/mask.glb` y `assets/hall.exr` por
+  ruta relativa, así que al publicar el artifact hay que subir esos dos archivos junto a la página.
+
+### Notas de rendimiento
+- Leer un `<canvas>` acelerado por GPU con `getImageData` obliga a copiarlo de vuelta a la CPU.
+  Las texturas procedurales leían ≈ 20 millones de píxeles así; con `willReadFrequently` (función
+  `ctx2d` de `core/inlay.js`) el arranque pasó de ≈ 31 s a ≈ 3,4 s en Chromium sin GPU (en equipos
+  con GPU la mejora es menor en segundos, pero es el mismo cuello de botella).
+- Los lienzos que se dibujan unos sobre otros deben ser del mismo tipo (CPU con CPU): mezclar uno
+  acelerado con uno `willReadFrequently` vuelve a provocar copias.
+- La máscara (2,1 MB) y el HDRI (190 KB) ya no van en base64 dentro del JS: pesaban un 33 % más,
+  retrasaban el primer fotograma y no se podían cachear.
 
 ### Controles
 - Ratón: arrastrar = girar · rueda = acercar · botón derecho o mayús + arrastrar = desplazar.
@@ -92,7 +111,7 @@ Opciones:
 | [three.js](https://github.com/mrdoob/three.js) 0.170.0 (incluye `OrbitControls`, `RoomEnvironment`, `CSS2DRenderer`) | Render 3D | MIT |
 | Google Fonts: Marcellus, Alegreya Sans, IBM Plex Mono | Tipografía | SIL Open Font License 1.1 |
 | esbuild 0.24 (solo desarrollo) | Empaquetar la versión de una página | MIT |
-| [«Máscara funeraria de Tutankamón»](https://sketchfab.com/3d-models/mascara-funeraria-de-tutankamon-667fa18ffa404a6dac7abc6bcd5c861e) de [Roberto Domínguez](https://sketchfab.com/vmmaniac) | Modelo 3D de la máscara (galería y momia), simplificado a ~174 000 triángulos con glTF-Transform (meshopt + WebP). Archivo: `assets/mask.glb`, incrustado en `js/assets/maskModel.js` | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) — se exige citar al autor |
+| [«Máscara funeraria de Tutankamón»](https://sketchfab.com/3d-models/mascara-funeraria-de-tutankamon-667fa18ffa404a6dac7abc6bcd5c861e) de [Roberto Domínguez](https://sketchfab.com/vmmaniac) | Modelo 3D de la máscara (galería y momia), simplificado a ~174 000 triángulos con glTF-Transform (meshopt + WebP). Archivo: `assets/mask.glb`, cargado por `js/models/externalMask.js` | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) — se exige citar al autor |
 
 Salvo la máscara (modelo de terceros, arriba), todos los modelos y texturas se generan en código. El modelo de la máscara no indica si procede de un escaneo del original, de una réplica o de modelado manual.
 No hay servicios de pago, claves API ni registro.
