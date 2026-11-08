@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+import { assetURL } from './assets.js';
 import { floorTexture } from './materials.js';
 import { tween, Ease } from './tween.js';
 
@@ -33,7 +34,7 @@ let hdrPromise = null;
 function environment(renderer, scene) {
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  if (!hdrPromise) hdrPromise = new EXRLoader().loadAsync(new URL(HDRI_URL, document.baseURI).href);
+  if (!hdrPromise) hdrPromise = assetURL(HDRI_URL).then((u) => new EXRLoader().loadAsync(u));
   hdrPromise.then((tex) => {
     tex.mapping = THREE.EquirectangularReflectionMapping;
     const old = scene.environment;

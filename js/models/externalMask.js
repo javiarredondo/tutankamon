@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { assetURL } from '../core/assets.js';
 
 export const MASK_CREDIT = {
   title: 'Máscara funeraria de Tutankamón',
@@ -24,7 +25,7 @@ export function loadMaskModel() {
     promise = (async () => {
       const loader = new GLTFLoader();
       loader.setMeshoptDecoder(MeshoptDecoder);
-      const gltf = await loader.loadAsync(new URL(MASK_URL, document.baseURI).href);
+      const gltf = await loader.loadAsync(await assetURL(MASK_URL));
       const model = gltf.scene;
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
