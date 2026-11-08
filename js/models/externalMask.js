@@ -1,11 +1,12 @@
-// Carga del modelo 3D de la máscara (glTF de terceros, CC BY 4.0) incrustado en el código.
+// Carga del modelo 3D de la máscara (glTF de terceros, CC BY 4.0) desde assets/mask.glb.
+// Se descarga en segundo plano: no bloquea el primer fotograma y el navegador puede cachearlo.
 // Se normaliza al mismo marco que la máscara procedural: rostro hacia +Z, arriba +Y,
 // alto ≈ 0,54 m, centro del rostro cerca del origen. Mientras carga (o si falla),
 // se sigue mostrando la versión procedural.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import MASK_GLB_B64 from '../assets/maskModel.js';
+import { assetURL } from '../core/assets.js';
 
 export const MASK_CREDIT = {
   title: 'Máscara funeraria de Tutankamón',
@@ -16,19 +17,15 @@ export const MASK_CREDIT = {
 
 let promise = null;
 
-function decode(b64) {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out.buffer;
-}
+/** Ruta del modelo, relativa a la página (sirve igual en local, en Vercel y en el artifact). */
+export const MASK_URL = 'assets/mask.glb';
 
 export function loadMaskModel() {
   if (!promise) {
     promise = (async () => {
       const loader = new GLTFLoader();
       loader.setMeshoptDecoder(MeshoptDecoder);
-      const gltf = await loader.parseAsync(decode(MASK_GLB_B64), '');
+      const gltf = await loader.loadAsync(await assetURL(MASK_URL));
       const model = gltf.scene;
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());

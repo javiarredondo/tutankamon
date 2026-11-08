@@ -48,6 +48,10 @@ export const SOURCES = {
     text: 'Modelo 3D: «Máscara funeraria de Tutankamón» de Roberto Domínguez, licencia CC BY 4.0 (simplificado y comprimido para esta aplicación).',
     url: 'https://sketchfab.com/3d-models/mascara-funeraria-de-tutankamon-667fa18ffa404a6dac7abc6bcd5c861e',
   },
+  coffinetteRef: {
+    text: 'Silueta de referencia: vistas frontal y lateral del modelo «Coffinette of Tutankhamon» (New Day Culture, Sketchfab), usadas solo para medir contornos; no se ha copiado su malla.',
+    url: 'https://sketchfab.com/3d-models/coffinette-09e72c500d474df0aa8975e419f83ef2',
+  },
   fotosGEM: {
     text: 'Fotografías tomadas en el Gran Museo Egipcio (octubre de 2026), usadas solo como referencia visual para pintar los patrones; no se incluyen en la aplicación.',
   },
